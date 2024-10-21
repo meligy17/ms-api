@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCR Web Processor - English & Arabic</title>
+    <style>
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .upload-section {
+            border: 2px dashed #ccc;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 20px;
+            border-radius: 8px;
+        }
+        .file-input-wrapper {
+            cursor: pointer;
+            padding: 10px;
+        }
+        .preview-section {
+            margin: 20px 0;
+            text-align: center;
+        }
+        .preview-section img {
+            max-width: 100%;
+            max-height: 400px;
+        }
+        .results-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            min-height: 100px;
+            direction: auto;
+        }
+        .progress {
+            height: 20px;
+            background-color: #f5f5f5;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+        .progress-bar {
+            height: 100%;
+            background-color: #4CAF50;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+        .status-message {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .status-message.error {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+        .status-message.success {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>OCR Web Processor</h1>
+            <p>Extract English and Arabic text from your images instantly</p>
+        </div>
+
+        <div class="upload-section" id="dropZone">
+            <div class="file-input-wrapper">
+                Drop files here or click to upload
+                <input type="file" id="fileInput" accept="image/*" style="display: none;">
+            </div>
+        </div>
+
+        <div id="imagePreview" class="preview-section"></div>
+
+        <div class="progress" style="display: none;">
+            <div class="progress-bar"></div>
+        </div>
+
+        <button id="processButton" style="display: none;">Process Image</button>
+
+        <div class="results-section" id="results">
+            Extracted Text
+        </div>
+
+        <button id="downloadButton" style="display: none;">Download as TXT</button>
+
+        <div id="statusMessage" class="status-message" style="display: none;"></div>
+    </div>
+
+    <script>
+        const subscriptionKey = 'YOUR_AZURE_SUBSCRIPTION_KEY';  // Replace with your Azure key
+        const endpoint = 'YOUR_AZURE_ENDPOINT';  // Replace with your Azure endpoint
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const dropZone = document.getElementById('dropZone');
+            const fileInput = document.getElementById('fileInput');
+            const imagePreview = document.getElementById('imagePreview');
+            const processButton = document.getElementById('processButton');
+            const results = document.getElementById('results');
+            const progress = document.querySelector('.progress');
+            const progressBar = document.querySelector('.progress-bar');
+            const statusMessage = document.getElementById('statusMessage');
+            const downloadButton = document.getElementById('downloadButton');
+
+            let currentImage = null;
+
+            // Handle file selection
+            function handleFile(file) {
+                if (!file.type.startsWith('image/')) {
+                    showStatus('Please upload an image file.', 'error');
+                    return;
+                }
+
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    currentImage = e.target.result;
+                    imagePreview.innerHTML = `<img src="${currentImage}" alt="Preview">`;
+                    processButton.style.display = 'inline-block';
+                    results.textContent = 'Extracted Text';
+                    downloadButton.style.display = 'none';
+                };
+                reader.readAsDataURL(file);
+            }
+
+            // File drop handling
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.style.borderColor = '#4CAF50';
+            });
+
+            dropZone.addEventListener('dragleave', () => {
+                dropZone.style.borderColor = '#ccc';
+            });
+
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.style.borderColor = '#ccc';
+                const file = e.dataTransfer.files[0];
+                handleFile(file);
+            });
+
+            // File input handling
+            fileInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                handleFile(file);
+            });
+
+            dropZone.addEventListener('click', () => {
+                fileInput.click();
+            });
+
+            // Process image using Azure Computer Vision API
+            async function processImageWithAzure(imageData) {
+                // Remove the data URL prefix to get just the base64 data
+                const base64Image = imageData.split(',')[1];
+
+                try {
+                    // First API call to submit the image
+                    const readResponse = await fetch(
+                        `${endpoint}/vision/v3.2/read/analyze`,
+                        {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/octet-stream',
+                                'Ocp-Apim-Subscription-Key': subscriptionKey
+                            },
+                            body: Buffer.from(base64Image, 'base64')
+                        }
+                    );
+
+                    if (!readResponse.ok) {
+                        throw new Error(`HTTP error! status: ${readResponse.status}`);
+                    }
+
+                    // Get the operation location from headers
+                    const operationLocation = readResponse.headers.get('Operation-Location');
+
+                    // Poll for results
+                    let result;
+                    while (true) {
+                        const resultResponse = await fetch(operationLocation, {
+                            headers: {
+                                'Ocp-Apim-Subscription-Key': subscriptionKey
+                            }
+                        });
+
+                        result = await resultResponse.json();
+
+                        if (result.status === 'succeeded' || result.status === 'failed') {
+                            break;
+                        }
+
+                        // Wait before polling again
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
+
+                    if (result.status === 'succeeded') {
+                        // Extract text from the result
+                        let extractedText = '';
+                        result.analyzeResult.readResults.forEach(readResult => {
+                            readResult.lines.forEach(line => {
+                                extractedText += line.text + '\n';
+                            });
+                        });
+
+                        return extractedText.trim();
+                    } else {
+                        throw new Error('Text extraction failed');
+                    }
+                } catch (error) {
+                    throw new Error(`Failed to process image: ${error.message}`);
+                }
+            }
+
+            // Process button click handler
+            processButton.addEventListener('click', async () => {
+                if (!currentImage) {
+                    showStatus('Please upload an image first.', 'error');
+                    return;
+                }
+
+                progress.style.display = 'block';
+                progressBar.style.width = '50%';
+                processButton.disabled = true;
+                results.textContent = 'Processing...';
+
+                try {
+                    const extractedText = await processImageWithAzure(currentImage);
+                    results.textContent = extractedText;
+                    downloadButton.style.display = 'inline-block';
+                    showStatus('Text extracted successfully!', 'success');
+                } catch (error) {
+                    showStatus(error.message, 'error');
+                } finally {
+                    progress.style.display = 'none';
+                    processButton.disabled = false;
+                }
+            });
+
+            // Download functionality
+            downloadButton.addEventListener('click', () => {
+                const text = results.textContent;
+                const blob = new Blob([text], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'extracted_text.txt';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            });
+
+            // Status message helper
+            function showStatus(message, type) {
+                statusMessage.textContent = message;
+                statusMessage.className = `status-message ${type}`;
+                statusMessage.style.display = 'block';
+                setTimeout(() => {
+                    statusMessage.style.display = 'none';
+                }, 5000);
+            }
+        });
+    </script>
+</body>
+</html>
