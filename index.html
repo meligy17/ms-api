@@ -114,7 +114,7 @@
 
     <script>
         const subscriptionKey = '5b4bcbf2dc1c4e5fa0a21b31649344a8';  // Replace with your Azure key
-        const endpoint = 'https://bookmmea.cognitiveservices.azure.com/';  // Replace with your Azure endpoint
+        const endpoint = 'https://bookmmea.cognitiveservices.azure.com';  // Replace with your Azure endpoint
 
         document.addEventListener('DOMContentLoaded', function() {
             const dropZone = document.getElementById('dropZone');
@@ -127,7 +127,7 @@
             const statusMessage = document.getElementById('statusMessage');
             const downloadButton = document.getElementById('downloadButton');
 
-            let currentImage = null;
+            let currentFile = null;
 
             // Handle file selection
             function handleFile(file) {
@@ -136,10 +136,10 @@
                     return;
                 }
 
+                currentFile = file;
                 const reader = new FileReader();
                 reader.onload = function(e) {
-                    currentImage = e.target.result;
-                    imagePreview.innerHTML = `<img src="${currentImage}" alt="Preview">`;
+                    imagePreview.innerHTML = `<img src="${e.target.result}" alt="Preview">`;
                     processButton.style.display = 'inline-block';
                     results.textContent = 'Extracted Text';
                     downloadButton.style.display = 'none';
@@ -175,10 +175,7 @@
             });
 
             // Process image using Azure Computer Vision API
-            async function processImageWithAzure(imageData) {
-                // Remove the data URL prefix to get just the base64 data
-                const base64Image = imageData.split(',')[1];
-
+            async function processImageWithAzure(file) {
                 try {
                     // First API call to submit the image
                     const readResponse = await fetch(
@@ -186,10 +183,10 @@
                         {
                             method: 'POST',
                             headers: {
-                                'Content-Type': 'application/octet-stream',
+                                'Content-Type': file.type,
                                 'Ocp-Apim-Subscription-Key': subscriptionKey
                             },
-                            body: Buffer.from(base64Image, 'base64')
+                            body: file
                         }
                     );
 
@@ -239,7 +236,7 @@
 
             // Process button click handler
             processButton.addEventListener('click', async () => {
-                if (!currentImage) {
+                if (!currentFile) {
                     showStatus('Please upload an image first.', 'error');
                     return;
                 }
@@ -250,7 +247,7 @@
                 results.textContent = 'Processing...';
 
                 try {
-                    const extractedText = await processImageWithAzure(currentImage);
+                    const extractedText = await processImageWithAzure(currentFile);
                     results.textContent = extractedText;
                     downloadButton.style.display = 'inline-block';
                     showStatus('Text extracted successfully!', 'success');
